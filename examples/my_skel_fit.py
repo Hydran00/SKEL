@@ -43,7 +43,7 @@ def read_parameters():
         
         try:
             data = json.loads(json_bytes)
-            print("Received: ", data)
+            # print("Received: ", data)
             f.close()
             return data
         except json.JSONDecodeError as e:
@@ -92,24 +92,10 @@ if __name__ == '__main__':
 
 
     parser = argparse.ArgumentParser(description='Align SKEL to a SMPL frame')
-    
-    # parser.add_argument('--smpl_mesh_path', type=str, help='Path to the SMPL mesh to align to', default=None)
-    # parser.add_argument('--smpl_data_path', type=str, help='Path to the SMPL dictionary to align to (.pkl or .npz)', default=None)
     parser.add_argument('-o', '--out_dir', type=str, help='Output directory', default='output')
     parser.add_argument('-F', '--force-recompute', help='Force recomputation of the alignment', action='store_true')
-    # parser.add_argument('--gender', type=str, help='Gender of the subject (only needed if not provided with smpl_data_path)', default='female')
     
     args = parser.parse_args()
-    # args.smpl_data_path = 'examples/samples/img_fit/emily-sea-coiWR0gT8Cw-unsplash_0.npz'
-    # smpl_data = load_smpl_seq(args.smpl_data_path, gender=args.gender, straighten_hands=False)
-    
-    # if args.smpl_mesh_path is not None:
-    #     subj_name = os.path.basename(args.smpl_seq_path).split(".")[0]
-    # if args.smpl_data_path is not None:
-    #     subj_name = os.path.basename(args.smpl_data_path).split(".")[0]
-    # else:
-    #     raise ValueError('Either smpl_mesh_path or smpl_data_path must be provided')
-    
     subj_name = 'smpl_fit'
     
     # Create the output directory
@@ -130,13 +116,6 @@ if __name__ == '__main__':
         # skel_fitter = SkelFitter(smpl_data['gender'], device='cuda:0', export_meshes=True)
         skel_fitter = SkelFitter(data["gender"], device='cuda:0', export_meshes=True)
         
-        # skel_seq = skel_fitter.run_fit(smpl_data['trans'], 
-        #                            smpl_data['betas'], 
-        #                            smpl_data['poses'],
-        #                            batch_size=1,
-        #                            skel_data_init=skel_data_init, 
-        #                            force_recompute=args.force_recompute)
-        
         trans = np.array(data['global_position']).reshape(1, 3)
         rot = np.array(data['global_orient']).reshape(1, 3)
         betas = np.array(data['betas']).reshape(1, 10)
@@ -144,10 +123,12 @@ if __name__ == '__main__':
         body_pose = np.concatenate( (np.zeros((1, 3)), body_pose), axis=1 )
         
         
-        trans=np.zeros((1, 3))
-        rot=np.zeros((1, 3))
-        betas=np.zeros((1, 10))
-        body_pose=np.zeros((1, 72))
+        # trans=np.zeros((1, 3))
+        print(rot)
+        # rot=np.zeros((1, 3))
+        
+        # betas=np.zeros((1, 10))
+        # body_pose=np.zeros((1, 72))
         
         
         skel_seq = skel_fitter.run_fit(trans_in=trans,

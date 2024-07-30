@@ -61,6 +61,7 @@ class SkelFitter(object):
         
     def run_fit(self, 
             trans_in, 
+            # MODIFICATION
             rot_in,
             betas_in, 
             poses_in, 
@@ -81,6 +82,7 @@ class SkelFitter(object):
         print('Watching frame: {}'.format(watch_frame))
          
         # Initialize SKEL torch params
+        # MODIFICATION
         body_params = self._init_params(betas_in, poses_in, trans_in, rot_in, skel_data_init)
     
         # We cut the whole sequence in batches for parallel optimization  
@@ -156,7 +158,7 @@ class SkelFitter(object):
             poses_skel = torch.zeros((self.nb_frames, self.skel.num_q_params), device=self.device)
             # poses_skel[:, :3] = poses_smpl[:, :3] # Global orient are similar between SMPL and SKEL, so init with SMPL angles
             # MODIFICATION
-            poses_skel[:, :3] = rot_smpl # Global orient are similar between SMPL and SKEL, so init with SMPL angles
+            poses_skel[:, :3] = rot_smpl[0]
             
             betas_skel = torch.zeros((self.nb_frames, 10), device=self.device)
             betas_skel[:] = betas_smpl[..., :10]
@@ -171,7 +173,7 @@ class SkelFitter(object):
             # MODIFICATION
             rot_skel = to_torch(skel_data_init['rot'], self.device)
         
-        poses_skel[:, :3] = rot_smpl
+        poses_skel[:, :3] = rot_smpl[0]
             
         # Make a dictionary out of the necessary body parameters
         body_params = {

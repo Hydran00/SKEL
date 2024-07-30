@@ -533,7 +533,8 @@ class SKEL(nn.Module):
         joints_ori = G_bones[:,:,:3,:3]
         
         if skin_verts.max() > 1e3:
-            import ipdb; ipdb.set_trace()
+            # import ipdb; ipdb.set_trace()
+            pass
         
         output = SKELOutput(skin_verts=skin_verts,
                             skel_verts=skel_verts,
