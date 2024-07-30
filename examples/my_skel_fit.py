@@ -100,15 +100,17 @@ if __name__ == '__main__':
     # parser.add_argument('--gender', type=str, help='Gender of the subject (only needed if not provided with smpl_data_path)', default='female')
     
     args = parser.parse_args()
-    args.smpl_data_path = 'examples/samples/img_fit/emily-sea-coiWR0gT8Cw-unsplash_0.npz'
+    # args.smpl_data_path = 'examples/samples/img_fit/emily-sea-coiWR0gT8Cw-unsplash_0.npz'
     # smpl_data = load_smpl_seq(args.smpl_data_path, gender=args.gender, straighten_hands=False)
     
     # if args.smpl_mesh_path is not None:
     #     subj_name = os.path.basename(args.smpl_seq_path).split(".")[0]
-    if args.smpl_data_path is not None:
-        subj_name = os.path.basename(args.smpl_data_path).split(".")[0]
-    else:
-        raise ValueError('Either smpl_mesh_path or smpl_data_path must be provided')
+    # if args.smpl_data_path is not None:
+    #     subj_name = os.path.basename(args.smpl_data_path).split(".")[0]
+    # else:
+    #     raise ValueError('Either smpl_mesh_path or smpl_data_path must be provided')
+    
+    subj_name = 'smpl_fit'
     
     # Create the output directory
     subj_dir = os.path.join(args.out_dir, subj_name)
@@ -135,11 +137,11 @@ if __name__ == '__main__':
         #                            skel_data_init=skel_data_init, 
         #                            force_recompute=args.force_recompute)
         
-        # trans = np.array(data['global_position']).reshape(1, 3)
-        # rot = np.array(data['global_orient']).reshape(1, 3)
-        # betas = np.array(data['betas']).reshape(1, 10)
-        # body_pose = np.array(data['body_pose_axis_angle'])[0][:69].reshape(1, 69)        
-        # body_pose = np.concatenate( (np.zeros((1, 3)), body_pose), axis=1 )
+        trans = np.array(data['global_position']).reshape(1, 3)
+        rot = np.array(data['global_orient']).reshape(1, 3)
+        betas = np.array(data['betas']).reshape(1, 10)
+        body_pose = np.array(data['body_pose_axis_angle'])[0][:69].reshape(1, 69)        
+        body_pose = np.concatenate( (np.zeros((1, 3)), body_pose), axis=1 )
         
         
         trans=np.zeros((1, 3))
@@ -148,10 +150,10 @@ if __name__ == '__main__':
         body_pose=np.zeros((1, 72))
         
         
-        skel_seq = skel_fitter.run_fit(trans,
-                                       rot,
-                                        betas,
-                                        body_pose,
+        skel_seq = skel_fitter.run_fit(trans_in=trans,
+                                        rot_in=rot,
+                                        betas_in=betas,
+                                        poses_in=body_pose,
                                         batch_size=1,
                                         skel_data_init=skel_data_init, 
                                         force_recompute=args.force_recompute)

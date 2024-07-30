@@ -61,6 +61,7 @@ class SkelFitter(object):
         
     def run_fit(self, 
             trans_in, 
+            rot_in,
             betas_in, 
             poses_in, 
             batch_size=20, 
@@ -80,7 +81,7 @@ class SkelFitter(object):
         print('Watching frame: {}'.format(watch_frame))
          
         # Initialize SKEL torch params
-        body_params = self._init_params(betas_in, poses_in, trans_in, skel_data_init)
+        body_params = self._init_params(betas_in, poses_in, trans_in, rot_in, skel_data_init)
     
         # We cut the whole sequence in batches for parallel optimization  
         if batch_size > self.nb_frames:
@@ -140,18 +141,22 @@ class SkelFitter(object):
                 
         return res_dict
         
-    def _init_params(self, betas_smpl, poses_smpl, trans_smpl, skel_data_init=None):
+    def _init_params(self, betas_smpl, poses_smpl, trans_smpl, rot_smpl, skel_data_init=None):
         """ Return initial SKEL parameters from SMPL data dictionary and an optional SKEL data dictionary."""
     
         # Prepare smpl params 
         betas_smpl = to_torch(betas_smpl, self.device)
         poses_smpl = to_torch(poses_smpl, self.device)
         trans_smpl = to_torch(trans_smpl, self.device)
+        # MODIFICATION
+        rot_smpl = to_torch(rot_smpl, self.device)
         
         if skel_data_init is None or self.force_recompute:
         
             poses_skel = torch.zeros((self.nb_frames, self.skel.num_q_params), device=self.device)
-            poses_skel[:, :3] = poses_smpl[:, :3] # Global orient are similar between SMPL and SKEL, so init with SMPL angles
+            # poses_skel[:, :3] = poses_smpl[:, :3] # Global orient are similar between SMPL and SKEL, so init with SMPL angles
+            # MODIFICATION
+            poses_skel[:, :3] = rot_smpl # Global orient are similar between SMPL and SKEL, so init with SMPL angles
             
             betas_skel = torch.zeros((self.nb_frames, 10), device=self.device)
             betas_skel[:] = betas_smpl[..., :10]
@@ -163,6 +168,10 @@ class SkelFitter(object):
             betas_skel = to_torch(skel_data_init['betas'], self.device)
             poses_skel = to_torch(skel_data_init['poses'], self.device)
             trans_skel = to_torch(skel_data_init['trans'], self.device)
+            # MODIFICATION
+            rot_skel = to_torch(skel_data_init['rot'], self.device)
+        
+        poses_skel[:, :3] = rot_smpl
             
         # Make a dictionary out of the necessary body parameters
         body_params = {
@@ -171,7 +180,8 @@ class SkelFitter(object):
             'trans_skel': trans_skel,
             'betas_smpl': betas_smpl,
             'poses_smpl': poses_smpl,
-            'trans_smpl': trans_smpl
+            'trans_smpl': trans_smpl,
+            'rot_smpl': rot_smpl
         }
 
         return body_params
@@ -188,6 +198,7 @@ class SkelFitter(object):
         betas_smpl = body_params['betas_smpl']
         poses_smpl = body_params['poses_smpl']
         trans_smpl = body_params['trans_smpl']
+        rot_smpl = body_params['rot_smpl']
         
         # SKEL params
         betas = to_params(body_params['betas_skel'], device=self.device)
@@ -198,7 +209,9 @@ class SkelFitter(object):
             verts = body_params['verts']
         else:
             # Run a SMPL forward pass to get the SMPL body vertices
-            smpl_output = self.smpl(betas=betas_smpl, body_pose=poses_smpl[:,3:], transl=trans_smpl, global_orient=poses_smpl[:,:3])
+            # smpl_output = self.smpl(betas=betas_smpl, body_pose=poses_smpl[:,3:], transl=trans_smpl, global_orient=poses_smpl[:,:3])
+            # MODIFICATION
+            smpl_output = self.smpl(betas=betas_smpl, body_pose=poses_smpl[:,3:], transl=trans_smpl, global_orient=rot_smpl)
             verts = smpl_output.vertices
                    
         # Optimize         
