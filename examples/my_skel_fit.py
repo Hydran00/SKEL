@@ -105,7 +105,7 @@ if __name__ == '__main__':
     
     subj_dir = subj_dir
     
-    if False: #os.path.exists(pkl_path) and not args.force_recompute:
+    if os.path.exists(pkl_path) and not args.force_recompute:
         print('Previous aligned SKEL sequence found at {}. Will be used as initialization.'.format(subj_dir))
         skel_data_init = pickle.load(open(pkl_path, 'rb'))
     else:
@@ -124,7 +124,6 @@ if __name__ == '__main__':
         
         
         # trans=np.zeros((1, 3))
-        print(rot)
         # rot=np.zeros((1, 3))
         
         # betas=np.zeros((1, 10))
