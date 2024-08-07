@@ -220,10 +220,11 @@ class SkelFitter(object):
         # Optimize         
         config = self.cfg.optim_steps
         current_cfg = config[0]
-        if not self.is_skel_data_init:
+        # MODIFICATION
+        # if not self.is_skel_data_init:
             # Optimize the global rotation and translation for the initial fitting
-            print(f'Step 0: {current_cfg.description}')
-            self._optim([trans,poses], poses, betas, trans, verts, current_cfg)
+        print(f'Step 0: {current_cfg.description}')
+        self._optim([trans,poses], poses, betas, trans, verts, current_cfg)
 
         for ci, cfg in enumerate(config[1:]):
         # for ci, cfg in enumerate([config[-1]]): # To debug, only run the last step
