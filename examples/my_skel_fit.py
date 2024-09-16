@@ -102,7 +102,7 @@ if __name__ == '__main__':
     subj_dir = os.path.join(args.out_dir, subj_name)
     os.makedirs(subj_dir, exist_ok=True)
     pkl_path = os.path.join(subj_dir, subj_name+'_skel.pkl')  
-    
+    params_path = os.path.join(subj_dir, subj_name+'_params.pkl')
     subj_dir = subj_dir
     
     if os.path.exists(pkl_path) and not args.force_recompute:
@@ -153,5 +153,7 @@ if __name__ == '__main__':
         send_skel(SKEL_skel_mesh.export(file_type="obj"))
 
         pickle.dump(skel_seq, open(pkl_path, 'wb'))
+        # dump parameters
+        pickle.dump({"trans":trans, "rot":rot, "betas":betas, "body_pose":body_pose}, open(params_path, 'wb'))
         exit(0)
     
