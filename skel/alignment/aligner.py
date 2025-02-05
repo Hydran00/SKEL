@@ -34,8 +34,7 @@ class SkelFitter(object):
         self.num_betas = num_betas
         
         # Instanciate masks used for the vertex to vertex fitting
-        fitting_mask_file = 'skel/alignment/riggid_parts_mask.pkl'
-        fitting_indices = pickle.load(open(fitting_mask_file, 'rb'))
+        fitting_indices = pickle.load(open(cg.fitting_mask_file, 'rb'))
         fitting_mask = torch.zeros(6890, dtype=torch.bool, device=self.device)
         fitting_mask[fitting_indices] = 1
         self.fitting_mask = fitting_mask.reshape(1, -1, 1).to(self.device) # 1xVx1 to be applied to verts that are BxVx3
@@ -77,6 +76,9 @@ class SkelFitter(object):
 
         self.nb_frames = poses_in.shape[0]
         self.watch_frame = watch_frame
+        if self.watch_frame >= self.nb_frames:
+            raise ValueError(f'watch_frame {self.watch_frame} is larger than the number of frames {self.nb_frames}. Please provide a watch frame index smaller than the number of frames ({self.nb_frames})')
+            
         self.is_skel_data_init = skel_data_init is not None
         self.force_recompute = force_recompute
         
@@ -158,10 +160,9 @@ class SkelFitter(object):
         if skel_data_init is None or self.force_recompute:
         
             poses_skel = torch.zeros((self.nb_frames, self.skel.num_q_params), device=self.device)
-            # poses_skel[:, :3] = poses_smpl[:, :3] # Global orient are similar between SMPL and SKEL, so init with SMPL angles
-            # MODIFICATION
-            poses_skel[:, :3] = rot_smpl[0]
-            
+            poses_skel[:, :3] = poses_smpl[:, :3] # Global orient are similar between SMPL and SKEL, so init with SMPL angles
+            poses_skel[:, 0] = -poses_smpl[:, 0] # axis deffinition is different in SKEL
+            # poses_skel[:, :3] = rot_smpl[0]
             betas_skel = torch.zeros((self.nb_frames, 10), device=self.device)
             betas_skel[:] = betas_smpl[..., :10]
             
@@ -193,11 +194,13 @@ class SkelFitter(object):
             
 
     
-    def _fit_batch(self, body_params, i, i_start, i_end):
+    def _fit_batch(self, body_params_in, i, i_start, i_end):
         """ Create parameters for the batch and run the optimization."""
         
-        # Sample a batch ver
-        body_params = { key: val[i_start:i_end] for key, val in body_params.items()}
+        # Sample a batch 
+        assert body_params_in['betas_smpl'].shape[0] == 1, f"beta_smpl should be of shape 1xF where F is the number of frames, got {body_params_in['betas_smpl'].shape}"
+        body_params = { key: val[i_start:i_end] for key, val in body_params_in.items() if key!='betas_smpl'} # Ignore the betas_smpl since it is the same for all frames
+        body_params['betas_smpl'] = body_params_in['betas_smpl'].clone()
 
         # SMPL params
         betas_smpl = body_params['betas_smpl']
@@ -311,11 +314,11 @@ class SkelFitter(object):
             verts_mask = self.torso_verts_mask  
             
         elif cfg.mode=='fixed_upper_limbs':
-            upper_limbs_joints = [0,1,2,3,6,9,12,15,17]
+            upper_limbs_joints = [0,1,2,3,6,9,12,15,16,17]
             verts_mask = (self.smpl.lbs_weights[:,upper_limbs_joints]>0.5).sum(dim=-1)>0
             verts_mask = verts_mask.unsqueeze(0).unsqueeze(-1)
             
-            joint_mask[:, [3,4,5,8,9,10,18,23], :] = 0 # Do not try to match the joints of the upper limbs
+            joint_mask[:, [3,4,5,8,9,10,18,23], :] = 0 # Do not try to match the joints past the elbow and knees
             
             pose_mask[:] = 1           
             pose_mask[:,:3] = 0    # Block the global rotation
