@@ -21,7 +21,8 @@ from psbody.mesh import Mesh, MeshViewer, MeshViewers
 import skel.config as cg
 from skel.skel_model import SKEL
 import omegaconf 
-
+import numpy as np
+import scipy.spatial.transform
 class SkelFitter(object):
     
     def __init__(self, gender, device, num_betas=10, export_meshes=False, config_path=None) -> None:
@@ -57,6 +58,7 @@ class SkelFitter(object):
             print("\n DISABLE_VIEWER flag is set, running in headless mode")
         else:
             self.mv = MeshViewers((1,2),  keepalive=self.cfg.keepalive_meshviewer)
+            self.mv[0][0].set_background_color(np.array([1.0,1,1]))
         
         
     def run_fit(self, 
@@ -412,7 +414,7 @@ class SkelFitter(object):
         skin_err_value = to_numpy(skin_err_value)
             
         skin_mesh = Mesh(v=to_numpy(output.skin_verts[0]), f=[], vc='white')
-        skel_mesh = Mesh(v=to_numpy(output.skel_verts[0]), f=self.skel.skel_f.cpu().numpy(), vc='white')
+        skel_mesh = Mesh(v=to_numpy(output.skel_verts[0]), f=self.skel.skel_f.cpu().numpy(), vc='grey40')
         
         # Display vertex distance on SMPL
         smpl_verts = to_numpy(verts[0])
@@ -424,14 +426,33 @@ class SkelFitter(object):
         
         skin_mesh_err = Mesh(v=to_numpy(output.skin_verts[0]), f=self.skel.skin_f.cpu().numpy(), vc='white')
         skin_mesh_err.set_vertex_colors_from_weights(skin_err_value, scale_to_range_1=False) 
+        
+        # 180 deg on z
+        R = scipy.spatial.transform.Rotation.from_euler('y', np.pi)
+        
+        smpl_mesh_pc.rotate_vertices(R.as_matrix())
+        skel_mesh.rotate_vertices(R.as_matrix())
+        skin_mesh.rotate_vertices(R.as_matrix())
+        skin_mesh_err.rotate_vertices(R.as_matrix())
+        smpl_mesh_masked.rotate_vertices(R.as_matrix())
+
+        
+        
         # List the meshes to display
         meshes_left = [skin_mesh_err, smpl_mesh_pc, skel_mesh]
         meshes_right = [smpl_mesh_masked, skin_mesh, skel_mesh]
 
         if cfg.l_joint > 0:
             # Plot the joints
-            meshes_right += location_to_spheres(to_numpy(output.joints[joint_mask[:,:,0]]), color=(1,0,0), radius=0.02)
-            meshes_right += location_to_spheres(to_numpy(anat_joints[joint_mask[:,:,0]]), color=(0,1,0), radius=0.02) \
+            spheres1 = location_to_spheres(to_numpy(output.joints[joint_mask[:,:,0]]), color=(1,0,0), radius=0.02)
+            spheres2 = location_to_spheres(to_numpy(anat_joints[joint_mask[:,:,0]]), color=(0,1,0), radius=0.02)
+            
+            for sphere in spheres1:
+                sphere.rotate_vertices(R.as_matrix())
+            for sphere in spheres2:
+                sphere.rotate_vertices(R.as_matrix())
+            meshes_right += spheres1
+            meshes_right += spheres2
                 
 
         self.mv[0][0].set_dynamic_meshes(meshes_left)
