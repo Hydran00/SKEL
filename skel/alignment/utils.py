@@ -60,8 +60,10 @@ def load_smpl_seq(smpl_seq_path, gender=None, straighten_hands=False):
         # assert 'global_orient' in data_dict and 'body_pose' in data_dict, f"Could not find poses in {smpl_seq_path}. Available keys: {data_dict.keys()})"
         poses = np.concatenate([data_dict['global_orient_axis_angle'], data_dict['body_pose_axis_angle']], axis=1)
         poses = poses.reshape(-1, 72)
-    elif 'body_pose' in data_dict and 'global_orient' in data_dict:
+    elif 'body_pose' in data_dict and 'global_orient' in data_dict and 'body_pose_axis_angle' in data_dict and 'global_orient_axis_angle' in data_dict:
         poses = np.concatenate([data_dict['global_orient_axis_angle'], data_dict['body_pose_axis_angle']], axis=-1)
+    elif 'body_pose' in data_dict and 'global_orient' in data_dict:
+        poses = np.concatenate([data_dict['global_orient'], data_dict['body_pose']], axis=-1)
     else: 
         raise Exception(f"Could not find poses in {smpl_seq_path}. Available keys: {data_dict.keys()})")
         
@@ -78,11 +80,14 @@ def load_smpl_seq(smpl_seq_path, gender=None, straighten_hands=False):
     data_fixed['poses'] = poses
         
     # Translation
-    if 'trans' not in data_dict:
-        data_fixed['trans'] = np.zeros((poses.shape[0], 3))
-    else:
+    if 'trans' in data_dict:
         data_fixed['trans'] = data_dict['trans']
-        
+    elif 'transl' in data_dict:
+        data_fixed['trans'] = data_dict['transl']
+    else:
+        print(f'WARNING: Could not find translation in {smpl_seq_path}. Setting translation to zeros.')
+        data_fixed['trans'] = np.zeros((poses.shape[0], 3))
+
     # Get betas 
     betas = data_dict['betas'][..., :10] # Keep only the 10 first betas
     if len(betas.shape) == 1 and len(poses.shape) == 2:
@@ -98,6 +103,13 @@ def load_smpl_seq(smpl_seq_path, gender=None, straighten_hands=False):
     out_dict['betas'] = data_fixed['betas']
     out_dict['gender'] = data_fixed['gender']
     
+    # Check the shape of the parameters
+    num_batches = out_dict['poses'].shape[0]
+    assert out_dict['trans'].shape[0] == num_batches, f"Number of translations ({out_dict['trans'].shape[0]}) does not match the number of poses ({num_batches})"
+    assert out_dict['poses'].shape[1] == 72, f"Poses should have 72 parameters, found {out_dict['poses'].shape[1]} parameters"
+    assert out_dict['betas'].shape[1] == 10, f"Betas should have 10 parameters, found {out_dict['betas'].shape[1]} parameters"
+    assert out_dict['gender'] in ['male', 'female'], f"Gender should be either 'male' or 'female', found {out_dict['gender']}"
+
     return out_dict
         
         
