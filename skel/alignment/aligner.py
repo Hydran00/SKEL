@@ -21,7 +21,8 @@ from psbody.mesh import Mesh, MeshViewer, MeshViewers
 import skel.config as cg
 from skel.skel_model import SKEL
 import omegaconf 
-
+import numpy as np
+import scipy.spatial.transform
 class SkelFitter(object):
     
     def __init__(self, gender, device, num_betas=10, export_meshes=False, config_path=None) -> None:
@@ -56,10 +57,13 @@ class SkelFitter(object):
             print("\n DISABLE_VIEWER flag is set, running in headless mode")
         else:
             self.mv = MeshViewers((1,2),  keepalive=self.cfg.keepalive_meshviewer)
+            self.mv[0][0].set_background_color(np.array([1.0,1,1]))
         
         
     def run_fit(self, 
             trans_in, 
+            # MODIFICATION
+            rot_in,
             betas_in, 
             poses_in, 
             batch_size=20, 
@@ -82,7 +86,8 @@ class SkelFitter(object):
         print('Watching frame: {}'.format(watch_frame))
          
         # Initialize SKEL torch params
-        body_params = self._init_params(betas_in, poses_in, trans_in, skel_data_init)
+        # MODIFICATION
+        body_params = self._init_params(betas_in, poses_in, trans_in, rot_in, skel_data_init)
     
         # We cut the whole sequence in batches for parallel optimization  
         if batch_size > self.nb_frames:
@@ -142,20 +147,22 @@ class SkelFitter(object):
                 
         return res_dict
         
-    def _init_params(self, betas_smpl, poses_smpl, trans_smpl, skel_data_init=None):
+    def _init_params(self, betas_smpl, poses_smpl, trans_smpl, rot_smpl, skel_data_init=None):
         """ Return initial SKEL parameters from SMPL data dictionary and an optional SKEL data dictionary."""
     
         # Prepare smpl params 
         betas_smpl = to_torch(betas_smpl, self.device)
         poses_smpl = to_torch(poses_smpl, self.device)
         trans_smpl = to_torch(trans_smpl, self.device)
+        # MODIFICATION
+        rot_smpl = to_torch(rot_smpl, self.device)
         
         if skel_data_init is None or self.force_recompute:
         
             poses_skel = torch.zeros((self.nb_frames, self.skel.num_q_params), device=self.device)
             poses_skel[:, :3] = poses_smpl[:, :3] # Global orient are similar between SMPL and SKEL, so init with SMPL angles
             poses_skel[:, 0] = -poses_smpl[:, 0] # axis deffinition is different in SKEL
-
+            # poses_skel[:, :3] = rot_smpl[0]
             betas_skel = torch.zeros((self.nb_frames, 10), device=self.device)
             betas_skel[:] = betas_smpl[..., :10]
             
@@ -166,6 +173,11 @@ class SkelFitter(object):
             betas_skel = to_torch(skel_data_init['betas'], self.device)
             poses_skel = to_torch(skel_data_init['poses'], self.device)
             trans_skel = to_torch(skel_data_init['trans'], self.device)
+            # MODIFICATION
+            # rot_skel = to_torch(skel_data_init['rot'], self.device)
+        
+        # poses_skel[:, :3] = rot_smpl[0]
+        poses_smpl[:, :3] = rot_smpl[0]
             
         # Make a dictionary out of the necessary body parameters
         body_params = {
@@ -174,7 +186,8 @@ class SkelFitter(object):
             'trans_skel': trans_skel,
             'betas_smpl': betas_smpl,
             'poses_smpl': poses_smpl,
-            'trans_smpl': trans_smpl
+            'trans_smpl': trans_smpl,
+            # 'rot_smpl': rot_smpl
         }
 
         return body_params
@@ -193,6 +206,7 @@ class SkelFitter(object):
         betas_smpl = body_params['betas_smpl']
         poses_smpl = body_params['poses_smpl']
         trans_smpl = body_params['trans_smpl']
+        # rot_smpl = body_params['rot_smpl']
         
         # SKEL params
         betas = to_params(body_params['betas_skel'], device=self.device)
@@ -203,16 +217,19 @@ class SkelFitter(object):
             verts = body_params['verts']
         else:
             # Run a SMPL forward pass to get the SMPL body vertices
+            # smpl_output = self.smpl(betas=betas_smpl, body_pose=poses_smpl[:,3:], transl=trans_smpl, global_orient=poses_smpl[:,:3])
+            # MODIFICATION
             smpl_output = self.smpl(betas=betas_smpl, body_pose=poses_smpl[:,3:], transl=trans_smpl, global_orient=poses_smpl[:,:3])
             verts = smpl_output.vertices
                    
         # Optimize         
         config = self.cfg.optim_steps
         current_cfg = config[0]
-        if not self.is_skel_data_init:
+        # MODIFICATION
+        # if not self.is_skel_data_init:
             # Optimize the global rotation and translation for the initial fitting
-            print(f'Step 0: {current_cfg.description}')
-            self._optim([trans,poses], poses, betas, trans, verts, current_cfg)
+        print(f'Step 0: {current_cfg.description}')
+        self._optim([trans,poses], poses, betas, trans, verts, current_cfg)
 
         for ci, cfg in enumerate(config[1:]):
         # for ci, cfg in enumerate([config[-1]]): # To debug, only run the last step
@@ -400,7 +417,7 @@ class SkelFitter(object):
         skin_err_value = to_numpy(skin_err_value)
             
         skin_mesh = Mesh(v=to_numpy(output.skin_verts[0]), f=[], vc='white')
-        skel_mesh = Mesh(v=to_numpy(output.skel_verts[0]), f=self.skel.skel_f.cpu().numpy(), vc='white')
+        skel_mesh = Mesh(v=to_numpy(output.skel_verts[0]), f=self.skel.skel_f.cpu().numpy(), vc='grey40')
         
         # Display vertex distance on SMPL
         smpl_verts = to_numpy(verts[0])
@@ -412,14 +429,33 @@ class SkelFitter(object):
         
         skin_mesh_err = Mesh(v=to_numpy(output.skin_verts[0]), f=self.skel.skin_f.cpu().numpy(), vc='white')
         skin_mesh_err.set_vertex_colors_from_weights(skin_err_value, scale_to_range_1=False) 
+        
+        # 180 deg on z
+        R = scipy.spatial.transform.Rotation.from_euler('y', np.pi)
+        
+        smpl_mesh_pc.rotate_vertices(R.as_matrix())
+        skel_mesh.rotate_vertices(R.as_matrix())
+        skin_mesh.rotate_vertices(R.as_matrix())
+        skin_mesh_err.rotate_vertices(R.as_matrix())
+        smpl_mesh_masked.rotate_vertices(R.as_matrix())
+
+        
+        
         # List the meshes to display
         meshes_left = [skin_mesh_err, smpl_mesh_pc, skel_mesh]
         meshes_right = [smpl_mesh_masked, skin_mesh, skel_mesh]
 
         if cfg.l_joint > 0:
             # Plot the joints
-            meshes_right += location_to_spheres(to_numpy(output.joints[joint_mask[:,:,0]]), color=(1,0,0), radius=0.02)
-            meshes_right += location_to_spheres(to_numpy(anat_joints[joint_mask[:,:,0]]), color=(0,1,0), radius=0.02) \
+            spheres1 = location_to_spheres(to_numpy(output.joints[joint_mask[:,:,0]]), color=(1,0,0), radius=0.02)
+            spheres2 = location_to_spheres(to_numpy(anat_joints[joint_mask[:,:,0]]), color=(0,1,0), radius=0.02)
+            
+            for sphere in spheres1:
+                sphere.rotate_vertices(R.as_matrix())
+            for sphere in spheres2:
+                sphere.rotate_vertices(R.as_matrix())
+            meshes_right += spheres1
+            meshes_right += spheres2
                 
 
         self.mv[0][0].set_dynamic_meshes(meshes_left)

@@ -3,3 +3,5 @@ models/
 *.egg-info
 *__pycache__/
 imgui.ini
+skel_venv/
+skel.egg-info/

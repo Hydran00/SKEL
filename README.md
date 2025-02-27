@@ -72,7 +72,9 @@ pip install -U pip
 python3.8 -m venv skel_venv
 source skel_venv/bin/activate
 pip install git+https://github.com/mattloper/chumpy 
-pip install -e .
+pip install git+https://github.com/MPI-IS/mesh.git
+pip install -e SKEL/
+pip install matplotlib omegaconf ipdb
 ```
 
 ### Downloading SKEL
