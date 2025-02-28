@@ -544,8 +544,8 @@ class SKEL(nn.Module):
         joints_ori = G_bones[:,:,:3,:3]
         
         if skin_verts.max() > 1e3:
-            import ipdb; ipdb.set_trace()
-            
+            # import ipdb; ipdb.set_trace()
+            pass
         # Remove all the non necesarry stuff from the ram 
         del T
         
@@ -653,7 +653,7 @@ class SKEL(nn.Module):
         # bone_vect[:,13] = bone_vect[:,12].clone() 
         bone_vect[:,12] = bone_vect.clone()[:,11].clone() # We want to align the  thorax on the thorax-lumbar segment
         bone_vect[:,12][0][0] -= 0.01 # We want to align the  thorax on the thorax-lumbar segment
-        print("bone_vect[:,12]", bone_vect[:,12])
+        # print("bone_vect[:,12]", bone_vect[:,12])
         # bone_vect[:,11] = bone_vect[:,0].clone() 
         
         osim_vect = self.apose_rel_transfo[:, :3, 3].clone().view(1, Nj, 3).expand(B, Nj, 3).clone()

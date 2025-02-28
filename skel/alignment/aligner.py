@@ -290,7 +290,7 @@ class SkelFitter(object):
                                         verts,
                                         cfg)
                 
-                print(pretty_loss_print(loss_dict))
+                # print(pretty_loss_print(loss_dict))
                              
                 loss = sum(loss_dict.values())                     
                 loss.backward()

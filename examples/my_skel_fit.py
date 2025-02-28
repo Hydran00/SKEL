@@ -5,13 +5,14 @@ import pickle
 
 import trimesh
 import torch
+print("CUDA available: ", torch.cuda.is_available())
 import sys
 import mmap
 sys.path.append("../")
 
 from skel.alignment.aligner import SkelFitter
 from skel.alignment.utils import load_smpl_seq
-
+import time
 max_size = 1024 * 1024 * 10
 
 import json, mmap, numpy as np
@@ -47,7 +48,9 @@ def read_parameters():
             f.close()
             return data
         except json.JSONDecodeError as e:
-            print(f"JSONDecodeError: {e}")
+            print(f"SMPL params not available")
+        
+        time.sleep(2.0)
 
 
 # def send_skel(skel_mesh):
