@@ -1,4 +1,3 @@
-# Copyright (C) 2024  MPI IS, Marilyn Keller
 import argparse
 import os
 import pickle
@@ -8,13 +7,13 @@ os.environ["XDG_RUNTIME_DIR"] = "/tmp"
 import trimesh
 import torch
 import sys
+from tqdm import tqdm
 from skel.alignment.losses import compute_scapula_loss
 
 from skel.skel_model import SKEL
 
 sys.path.append("../")
 
-from skel.alignment.aligner import SkelFitter
 
 #!/usr/bin/env python3
 import torch
@@ -56,33 +55,47 @@ class SKELModelOptimizer:
         self.mesh = o3d.geometry.TriangleMesh()
         self.point_cloud = None
 
+
     def optimize_model(self, target_pc):
         self.target_pc_tensor = self.point_cloud_to_tensor(target_pc).to(DEVICE)
         self.point_cloud = target_pc
         self.init_visualization(target_pc)
 
         # Optimization steps
+        mask = torch.zeros_like(self.poses)
+        mask[:, :3] = 1.0  # Only allow gradients on rotation
         self.optimize(
             [self.global_position],
-            lr=0.1,
-            loss_type="transl",
-            num_iterations=100,
-            tolerance_change=1e-6,
-        )
-        self.optimize(
-            [self.global_orient],
             lr=0.05,
             loss_type="transl",
-            num_iterations=100,
-            tolerance_change=1e-6,
+            num_iterations=200,
+            tolerance_change=1e-5,
         )
+        self.optimize(
+            [self.poses],
+            lr=0.01,
+            loss_type="rot",
+            num_iterations=200,
+            tolerance_change=1e-4,
+            mask=mask,  # Pass the mask to be applied inside optimize()
+        )
+
+        # self.optimize(
+        #     [self.global_position],
+        #     lr=0.05,
+        #     loss_type="transl",
+        #     num_iterations=100,
+        #     tolerance_change=1e-6,
+        # )
         self.optimize(
             [self.poses],
             lr=0.02,
             loss_type="transl",
             num_iterations=200,
-            tolerance_change=1e-6,
+            tolerance_change=1e-4,
         )
+
+        
         self.optimize([self.betas], lr=0.002, loss_type="shape", num_iterations=400, tolerance_change=1e-6)
 
         return (
@@ -104,7 +117,7 @@ class SKELModelOptimizer:
         loss = self.chamfer_distance(
             gen_pc_tensor, self.target_pc_tensor.unsqueeze(0), reverse=True
         )
-        print(f"{loss_type} loss: {loss.item():.6f}")
+        # print(f"{loss_type} loss: {loss.item():.6f}")
         return loss
 
     def get_skel(self):
@@ -116,26 +129,33 @@ class SKELModelOptimizer:
             skelmesh=True,
         )
 
-    def optimize(self, params, lr, loss_type, num_iterations, tolerance_change):
+    def optimize(self, params, lr, loss_type, num_iterations, tolerance_change, mask=None):
         optimizer = torch.optim.AdamW(params, lr=lr)
-        for i in range(num_iterations):
+        last_loss = 1e6
+        pbar = tqdm(range(num_iterations))
+        for i in pbar:
             optimizer.zero_grad()
             skel_output = self.get_skel()
             skin_vertices = skel_output.skin_verts
             skel_vertices = skel_output.skel_verts
             loss1 = self.compute_loss(loss_type, skin_vertices)
-            loss2 = 0.1 * compute_scapula_loss(self.poses)
+            loss2 = 1.0 * compute_scapula_loss(self.poses)
             skin_vertices_vis = skin_vertices.cpu().detach().clone().numpy()
             skel_vertices_vis = skel_vertices.cpu().detach().clone().numpy()
-            # print("global_position grad:", self.global_position.grad)
             loss = loss1 + loss2
             loss.backward()
-            if loss.item() < tolerance_change:
+            # Apply the mask to prevent updates on non-rotation parameters
+            if mask is not None and self.poses.grad is not None:
+                self.poses.grad *= mask 
+            loss_change = abs(last_loss - loss.item())
+            if  loss_change < tolerance_change:
                 print(f"Converged at iteration {i}, Loss: {loss.item():.6f}")
                 break 
+            last_loss = loss.item()
             optimizer.step()
             if i % 1 == 0:  # Update visualization every 10 iterations
-                print(f"Iteration {i}, Loss: {loss.item():.6f}")
+                # print(f"Iteration {i}, Loss: {loss.item():.6f}")
+                pbar.set_description(f"Iteration {i}, Loss: {loss.item():.2f}, Loss change: {loss_change:.6f}")
                 self.update_visualization(skin_vertices_vis, skel_vertices_vis)
 
         print(f"Final {loss_type} loss: {loss.item():.6f}")
@@ -205,16 +225,33 @@ def opt():
     ref_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
         size=0.6, origin=[0, 0, 0]
     )
+    def radians_from_deg(rad):
+        return rad * np.pi / 180
     rot = pc.get_rotation_matrix_from_xyz((-np.pi / 2, 0, 0))
     pc.rotate(rot, center=(0, 0, 0))
     rot = pc.get_rotation_matrix_from_xyz((0, np.pi/6, 0))
     pc.rotate(rot, center=(0, 0, 0))
-    rot = pc.get_rotation_matrix_from_xyz((np.pi/20, 0, 0))
+    rot = pc.get_rotation_matrix_from_xyz((-np.pi/10, 0, 0))
     pc.rotate(rot, center=(0, 0, 0))
+    rot = pc.get_rotation_matrix_from_xyz((0, radians_from_deg(20), 0))
+    pc.rotate(rot, center=(0, 0, 0))
+    rot = pc.get_rotation_matrix_from_xyz((radians_from_deg(10),0,0))
+    pc.rotate(rot, center=(0, 0, 0))
+    pc.translate([1.0, 0, 1.3])
+
+    # keep points with z > -0.4
+    points = np.asarray(pc.points)
+    idx = np.where(points[:, 2] > -0.4)
+    pc.points = o3d.utility.Vector3dVector(points[idx])
+    pc.colors = o3d.utility.Vector3dVector(np.asarray(pc.colors)[idx]) 
+
+
     o3d.visualization.draw_geometries([pc, ref_frame])
 
+    
+
     # downsample
-    pc = pc.voxel_down_sample(voxel_size=0.01)
+    pc = pc.voxel_down_sample(voxel_size=0.02)
 
     skel_model = SKEL("male").to(DEVICE)
     optimizer = SKELModelOptimizer(skel_model)
@@ -225,10 +262,11 @@ def opt():
 
     # visualize the optimized model
     skel_output = optimizer.get_skel()
-    vertices = skel_output.vertices[0].cpu().detach().numpy()
+    vertices = skel_output.skin_verts.cpu().detach().numpy()
+    faces = skel_model.skin_f.cpu().detach().numpy()
     optimized_mesh = o3d.geometry.TriangleMesh()
     optimized_mesh.vertices = o3d.utility.Vector3dVector(vertices)
-    optimized_mesh.triangles = o3d.utility.Vector3iVector(skel_model.faces)
+    optimized_mesh.triangles = o3d.utility.Vector3iVector(faces)
     optimized_mesh.compute_vertex_normals()
 
     o3d.visualization.draw_geometries([pc, optimized_mesh, ref_frame])

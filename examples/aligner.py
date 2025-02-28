@@ -195,13 +195,17 @@ class SkelFitter(object):
             
             # if i == 0 and not skel_data_init:
             # Optimize the global rotation and translation for the initial fitting
+            print('Optimizing the global rotation and translation')
             self.optim([trans,poses], poses, betas, trans, verts, cfg)
             # Fix the pelvis and pose the rest
+            print('Optimizing the rest of the body')
             cfg.update(self.cfg_optim)
+            print('Optimizing poses')
             self.optim([poses], poses, betas, trans, verts, cfg)
             
             
             # Refine by optimizing the whole body
+            print("Refining the whole body")
             cfg.update(self.cfg_optim)
             cfg.update({'mode' : 'free', 'tolerance_change': 0.0001, 'l_joint': 0.2e4})
             # self.optim([trans, poses], poses, betas, trans, verts, cfg)
@@ -293,7 +297,7 @@ class SkelFitter(object):
                                         verts,
                                         cfg)
                 
-                print(pretty_loss_print(loss_dict))
+                # print(pretty_loss_print(loss_dict))
                              
                 loss = sum(loss_dict.values())                     
                 loss.backward()
