@@ -89,7 +89,7 @@ class SKELModelOptimizer:
 
         self.optimize(
             [self.global_position,self.poses],
-            lr=0.02,
+            lr=0.005,
             loss_type="rot",
             num_iterations=100,
             tolerance_change=1e-6,
@@ -105,10 +105,10 @@ class SKELModelOptimizer:
 
         self.optimize(
             [self.betas],
-            lr=0.02,
+            lr=0.2,
             loss_type="shape",
-            num_iterations=200,
-            tolerance_change=1e-6,
+            num_iterations=400,
+            tolerance_change=1e-9,
         )
 
         # return
@@ -135,7 +135,7 @@ class SKELModelOptimizer:
                 generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
             )
         elif loss_type == "shape":
-            return self.betas.pow(2).sum() + self.chamfer_distance(
+            return 0.1 * self.betas.pow(2).sum() + self.chamfer_distance(
                 generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
             )
         else:
@@ -179,7 +179,7 @@ class SKELModelOptimizer:
             if i % 1 == 0:  # Update visualization every 10 iterations
                 # print(f"Iteration {i}, Loss: {loss.item():.6f}")
                 pbar.set_description(
-                    f"Iteration {i}, Loss: {loss.item():.2f}, Loss change: {loss_change:.6f}"
+                    f"Iteration {i}, Chamfer dist loss: {loss1.item():.2f}, Scapula loss: {loss2.item():.2f}, Total loss change: {loss_change:.6f}"
                 )
                 self.update_visualization(skin_vertices_vis)
 
@@ -242,21 +242,34 @@ def main(args=None):
     # get arguments
     parser = argparse.ArgumentParser(description="Skeleton fitting from point cloud")
     parser.add_argument(
-        "--use_initialization",
+        "--from-path",
+        type=bool,
+        default=False,
+        help="Load point cloud from file",
+    )
+    parser.add_argument(
+        "--use-initialization",
         type=bool,
         default=False,
         help="Use the last found parameters as initialization",
     )
     parser.add_argument(
-        "--output_folder",
+        "--output-folder",
         type=str,
         default=os.path.expanduser("~") + "/temp/skel_fitting/",
         help="Output folder to save optimized parameters",
     )
     args = parser.parse_args(args)
 
+
+
+    # Initialize SKEL model and optimizer
     skel_model = SKEL("male").to(DEVICE)
     optimizer = SKELModelOptimizer(skel_model)
+    with torch.no_grad():
+        optimizer.poses[:, 0] = np.pi   # Set the initial rotation to 180 degrees
+        optimizer.poses[:, 2] = np.pi
+        optimizer.global_position[:,0] = 0.5
     
     output_folder = args.output_folder
     
@@ -270,7 +283,11 @@ def main(args=None):
 
     while True:
         print("Waiting for point cloud...")
-        pc = receive_point_cloud()
+        if args.from_path:
+            print("Loading point cloud from file...")
+            pc = o3d.io.read_point_cloud(os.path.expanduser("~") + "/temp/icp/" + "merged.ply")
+        else:
+            pc = receive_point_cloud()
 
         ref_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
             size=0.6, origin=[0, 0, 0]
@@ -292,10 +309,10 @@ def main(args=None):
         # pc.translate([1.0, 0, 1.3])
 
         # keep points with z > -0.4
-        points = np.asarray(pc.points)
-        idx = np.where(points[:, 2] > -0.4)
-        pc.points = o3d.utility.Vector3dVector(points[idx])
-        pc.colors = o3d.utility.Vector3dVector(np.asarray(pc.colors)[idx])
+        # points = np.asarray(pc.points)
+        # idx = np.where(points[:, 2] > -0.4)
+        # pc.points = o3d.utility.Vector3dVector(points[idx])
+        # pc.colors = o3d.utility.Vector3dVector(np.asarray(pc.colors)[idx])
 
         o3d.visualization.draw_geometries([pc, ref_frame])
 
@@ -321,11 +338,13 @@ def main(args=None):
             "skel_faces": skel_faces.tolist(),
             "skin_verts": skin_vertices.tolist(),
             "skin_faces": skin_faces.tolist(),
-            "joints_ori": optimized_skel.joints_ori.cpu().detach().numpy().tolist(),
             "betas": optimized_skel.betas.cpu().detach().numpy().tolist(),
             "body_pose": optimized_skel.poses.cpu().detach().numpy().tolist(),
             "global_pos": optimized_skel.trans.cpu().detach().numpy().tolist(),
+            "joints_ori": optimized_skel.joints_ori.cpu().detach().numpy().tolist(),
+            "joints": optimized_skel.joints.cpu().detach().numpy().tolist(),
         }
+        print(results["betas"])
         send_optimized_results(results, output_folder)
         o3d.io.write_triangle_mesh(output_folder + "optimized_skel.ply", skel_mesh)
         o3d.io.write_triangle_mesh(output_folder + "optimized_skin.ply", skin_mesh)

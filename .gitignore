@@ -5,3 +5,5 @@ models/
 imgui.ini
 skel_venv/
 skel.egg-info/
+host_venv/
+**.ply
