@@ -76,7 +76,8 @@ class SKELModelOptimizer:
             lr=0.05,
             loss_type="transl",
             num_iterations=100,
-            tolerance_change=1e-5,
+            # tolerance_change=1e-5,
+            tolerance_change=1e-4,
         )
         self.optimize(
             [self.poses],
@@ -92,7 +93,7 @@ class SKELModelOptimizer:
             lr=0.005,
             loss_type="rot",
             num_iterations=100,
-            tolerance_change=1e-6,
+            tolerance_change=1e-4,
             mask=mask,  # Pass the mask to be applied inside optimize()
         )
         self.optimize(
@@ -108,7 +109,7 @@ class SKELModelOptimizer:
             lr=0.2,
             loss_type="shape",
             num_iterations=400,
-            tolerance_change=1e-9,
+            tolerance_change=1e-5,
         )
 
         # return
