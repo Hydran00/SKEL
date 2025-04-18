@@ -12,6 +12,7 @@ from skel.alignment.losses import compute_scapula_loss
 from skel.skel_model import SKEL
 from chamferdist import ChamferDistance
 import os
+import json
 
 # Environment setup
 os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
@@ -73,7 +74,7 @@ class SKELModelOptimizer:
         mask[:, :3] = 1.0  # Only allow gradients on rotation
         self.optimize(
             [self.global_position],
-            lr=0.05,
+            lr=0.1,
             loss_type="transl",
             num_iterations=100,
             # tolerance_change=1e-5,
@@ -81,21 +82,23 @@ class SKELModelOptimizer:
         )
         self.optimize(
             [self.poses],
+            lr=0.03,
+            loss_type="rot",
+            num_iterations=100,
+            tolerance_change=1e-4,
+            mask=mask,  # Pass the mask to be applied inside optimize()
+        )
+        self.optimize(
+            [self.global_position,self.poses],
             lr=0.01,
             loss_type="rot",
             num_iterations=100,
             tolerance_change=1e-4,
             mask=mask,  # Pass the mask to be applied inside optimize()
         )
-
-        self.optimize(
-            [self.global_position,self.poses],
-            lr=0.005,
-            loss_type="rot",
-            num_iterations=100,
-            tolerance_change=1e-4,
-            mask=mask,  # Pass the mask to be applied inside optimize()
-        )
+        # print optimized position and rotation
+        print("Optimized global position:", self.global_position.cpu().detach().numpy())
+        print("Optimized rotation:", self.poses[:, :3].cpu().detach().numpy())
         self.optimize(
             [self.poses],
             lr=0.02,
@@ -136,7 +139,7 @@ class SKELModelOptimizer:
                 generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
             )
         elif loss_type == "shape":
-            return 0.1 * self.betas.pow(2).sum() + self.chamfer_distance(
+            return 0.02 * self.betas.pow(2).sum() + self.chamfer_distance(
                 generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
             )
         else:
@@ -177,7 +180,7 @@ class SKELModelOptimizer:
                 break
             last_loss = loss.item()
             optimizer.step()
-            if i % 1 == 0:  # Update visualization every 10 iterations
+            if i % 5 == 0:  # Update visualization every 10 iterations
                 # print(f"Iteration {i}, Loss: {loss.item():.6f}")
                 pbar.set_description(
                     f"Iteration {i}, Chamfer dist loss: {loss1.item():.2f}, Scapula loss: {loss2.item():.2f}, Total loss change: {loss_change:.6f}"
@@ -220,11 +223,13 @@ class SKELModelOptimizer:
 
 
 def send_optimized_results(data, output_folder):
+    
+    # use json
     content = pickle.dumps(data)
     socket_send.send(content)
     if output_folder is not None:
-        with open(output_folder + "optimized_skel_params.pkl", "wb") as f:
-            pickle.dump(data, f)
+        with open(output_folder + "optimized_skel_params.json", "w") as f:
+            json.dump(data, f, indent=4)
     print("Optimized results sent back.")
 
 
@@ -243,36 +248,42 @@ def main(args=None):
     # get arguments
     parser = argparse.ArgumentParser(description="Skeleton fitting from point cloud")
     parser.add_argument(
-        "--from-path",
+        "--from_path",
         type=bool,
         default=False,
         help="Load point cloud from file",
     )
     parser.add_argument(
-        "--use-initialization",
+        "--use_initialization",
         type=bool,
         default=False,
         help="Use the last found parameters as initialization",
     )
     parser.add_argument(
-        "--output-folder",
+        "--output_folder",
         type=str,
         default=os.path.expanduser("~") + "/temp/skel_fitting/",
         help="Output folder to save optimized parameters",
     )
     args = parser.parse_args(args)
 
+    output_folder = args.output_folder
+    print("\n\n \033[92m Output folder: ", output_folder, "\033[0m \n\n")
 
 
     # Initialize SKEL model and optimizer
     skel_model = SKEL("male").to(DEVICE)
     optimizer = SKELModelOptimizer(skel_model)
-    with torch.no_grad():
-        optimizer.poses[:, 0] = np.pi   # Set the initial rotation to 180 degrees
-        optimizer.poses[:, 2] = np.pi
-        optimizer.global_position[:,0] = 0.5
+ 
+    # Optimized global position: [[0.5195589  0.17820874 0.10494429]]
+    # Optimized rotation: [[3.016994  0.294538  3.0002122]]
     
-    output_folder = args.output_folder
+    with torch.no_grad():
+        # optimizer.poses[:, 0] = np.pi   # Set the initial rotation to 180 degrees
+        # optimizer.poses[:, 2] = np.pi
+        # optimizer.global_position[:,0] = 0.5
+        optimizer.global_position = torch.tensor([[0.5195589, 0.17820874, 0.10494429]], device=DEVICE)
+        optimizer.poses[:,:3] = torch.tensor([3.016994, 0.294538, 3.0002122], device=DEVICE)
     
     if args.use_initialization:
         with open(output_folder + "optimized_skel_params.pkl", "rb") as f:
@@ -315,15 +326,16 @@ def main(args=None):
         # pc.points = o3d.utility.Vector3dVector(points[idx])
         # pc.colors = o3d.utility.Vector3dVector(np.asarray(pc.colors)[idx])
 
-        o3d.visualization.draw_geometries([pc, ref_frame])
+        # o3d.visualization.draw_geometries([pc, ref_frame])
 
         # downsample
-        pc = pc.voxel_down_sample(voxel_size=0.02)
+        pc = pc.voxel_down_sample(voxel_size=0.01)
 
         # optimize skel model
         optimized_skel = optimizer.optimize_model(pc)
+        # optimized_skel = optimizer.get_skel()
 
-        # send optimized results back
+        # send optimized results back   
         skin_vertices = optimized_skel.skin_verts.cpu().detach().numpy()
         skin_faces = optimizer.skel_model.skin_f.cpu().detach().numpy()
         skin_mesh = o3d.geometry.TriangleMesh()
@@ -351,6 +363,7 @@ def main(args=None):
         o3d.io.write_triangle_mesh(output_folder + "optimized_skin.ply", skin_mesh)
         print("Optimization cycle complete.")
         optimizer.close_visualization()
+        exit(0)
 
 
 if __name__ == "__main__":
