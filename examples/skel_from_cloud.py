@@ -41,7 +41,7 @@ socket_send.bind(f"tcp://*:{ZMQ_PORT_SEND}")
 
 
 class SKELModelOptimizer:
-    def __init__(self, skel_model, device=DEVICE):
+    def __init__(self, skel_model, global_position_init, global_rotation_init, device=DEVICE):
         self.skel_model = skel_model
         self.betas = torch.zeros(
             (1, NUM_BETAS), dtype=torch.float32, requires_grad=True, device=DEVICE
@@ -52,8 +52,10 @@ class SKELModelOptimizer:
             requires_grad=True,
             device=DEVICE,
         )
-        self.global_position = torch.zeros(
-            (1, 3), dtype=torch.float32, requires_grad=True, device=DEVICE
+        with torch.no_grad():
+            self.poses[:, :3] = global_rotation_init
+        self.global_position = torch.tensor(
+            global_position_init, dtype=torch.float32, requires_grad=True, device=DEVICE
         )
         self.chamfer_distance = ChamferDistance().to(DEVICE)
         self.skel_skin_vis_offset = [2.0, 0.0, 0.0]
@@ -80,6 +82,7 @@ class SKELModelOptimizer:
             # tolerance_change=1e-5,
             tolerance_change=1e-4,
         )
+        print("Optimized global position")
         self.optimize(
             [self.poses],
             lr=0.03,
@@ -88,6 +91,7 @@ class SKELModelOptimizer:
             tolerance_change=1e-4,
             mask=mask,  # Pass the mask to be applied inside optimize()
         )
+        print("Optimized global rotation")
         self.optimize(
             [self.global_position,self.poses],
             lr=0.01,
@@ -130,16 +134,12 @@ class SKELModelOptimizer:
         )
 
     def compute_loss(self, loss_type, generated_pc):
-        if loss_type == "transl":
-            return self.chamfer_distance(
-                generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
-            )
-        elif loss_type == "rot":
+        if loss_type == "transl" or loss_type == "rot":
             return self.chamfer_distance(
                 generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
             )
         elif loss_type == "shape":
-            return 0.02 * self.betas.pow(2).sum() + self.chamfer_distance(
+            return 0.000 * self.betas.pow(2).sum() + self.chamfer_distance(
                 generated_pc, self.target_pc_tensor.unsqueeze(0), reverse=True
             )
         else:
@@ -176,11 +176,11 @@ class SKELModelOptimizer:
                 self.poses.grad *= mask
             loss_change = abs(last_loss - loss.item())
             if loss_change < tolerance_change:
-                print(f"Converged at iteration {i}, Loss: {loss.item():.6f}")
+                print(f"Converged at iteration {i}, Loss: {loss.item():.4f}, Loss change: {loss_change:.6f}")
                 break
             last_loss = loss.item()
             optimizer.step()
-            if i % 5 == 0:  # Update visualization every 10 iterations
+            if i % 1 == 0:  # Update visualization every 10 iterations
                 # print(f"Iteration {i}, Loss: {loss.item():.6f}")
                 pbar.set_description(
                     f"Iteration {i}, Chamfer dist loss: {loss1.item():.2f}, Scapula loss: {loss2.item():.2f}, Total loss change: {loss_change:.6f}"
@@ -273,18 +273,10 @@ def main(args=None):
 
     # Initialize SKEL model and optimizer
     skel_model = SKEL("male").to(DEVICE)
-    optimizer = SKELModelOptimizer(skel_model)
+    global_position = torch.tensor([[0.6195589, 0.17820874, 0.10494429]], device=DEVICE)
+    global_rotation = torch.tensor([3.11, 0.0, 3.0002122], device=DEVICE)
+    optimizer = SKELModelOptimizer(skel_model, global_position, global_rotation)
  
-    # Optimized global position: [[0.5195589  0.17820874 0.10494429]]
-    # Optimized rotation: [[3.016994  0.294538  3.0002122]]
-    
-    with torch.no_grad():
-        # optimizer.poses[:, 0] = np.pi   # Set the initial rotation to 180 degrees
-        # optimizer.poses[:, 2] = np.pi
-        # optimizer.global_position[:,0] = 0.5
-        optimizer.global_position = torch.tensor([[0.5195589, 0.17820874, 0.10494429]], device=DEVICE)
-        optimizer.poses[:,:3] = torch.tensor([3.016994, 0.294538, 3.0002122], device=DEVICE)
-    
     if args.use_initialization:
         with open(output_folder + "optimized_skel_params.pkl", "rb") as f:
             # params = pickle.load(f)
@@ -297,36 +289,13 @@ def main(args=None):
         print("Waiting for point cloud...")
         if args.from_path:
             print("Loading point cloud from file...")
-            pc = o3d.io.read_point_cloud(os.path.expanduser("~") + "/temp/icp/" + "merged.ply")
+            pc = o3d.io.read_point_cloud(os.environ["OUTPUT_FOLDER"]+"/icp_output/merged.ply")
         else:
             pc = receive_point_cloud()
 
         ref_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(
             size=0.6, origin=[0, 0, 0]
         )
-
-        # def radians_from_deg(rad):
-        #     return rad * np.pi / 180
-
-        # rot = pc.get_rotation_matrix_from_xyz((-np.pi / 2, 0, 0))
-        # pc.rotate(rot, center=(0, 0, 0))
-        # rot = pc.get_rotation_matrix_from_xyz((0, np.pi / 6, 0))
-        # pc.rotate(rot, center=(0, 0, 0))
-        # rot = pc.get_rotation_matrix_from_xyz((-np.pi / 10, 0, 0))
-        # pc.rotate(rot, center=(0, 0, 0))
-        # rot = pc.get_rotation_matrix_from_xyz((0, radians_from_deg(20), 0))
-        # pc.rotate(rot, center=(0, 0, 0))
-        # rot = pc.get_rotation_matrix_from_xyz((radians_from_deg(10),0,0))
-        # pc.rotate(rot, center=(0, 0, 0))
-        # pc.translate([1.0, 0, 1.3])
-
-        # keep points with z > -0.4
-        # points = np.asarray(pc.points)
-        # idx = np.where(points[:, 2] > -0.4)
-        # pc.points = o3d.utility.Vector3dVector(points[idx])
-        # pc.colors = o3d.utility.Vector3dVector(np.asarray(pc.colors)[idx])
-
-        # o3d.visualization.draw_geometries([pc, ref_frame])
 
         # downsample
         pc = pc.voxel_down_sample(voxel_size=0.01)
