@@ -139,6 +139,7 @@ class SKELModelOptimizer:
             optimizer.zero_grad()
             skel_output = self._get_skel()
             skin_vertices = skel_output.skin_verts
+            skel_vertices = skel_output.skel_verts
             loss = self._compute_loss(loss_type, skin_vertices, target_pc) + compute_scapula_loss(self.poses) + compute_spine_loss(self.poses)
             loss.backward()
             loss_change = abs(last_loss - loss.item())
